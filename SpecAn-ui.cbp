@@ -42,6 +42,9 @@
 		<Unit filename="specan.c">
 			<Option compilerVar="CC" />
 		</Unit>
+		<Unit filename="specan.rc">
+			<Option compilerVar="WINDRES" />
+		</Unit>
 		<Extensions>
 			<code_completion />
 			<envvars />

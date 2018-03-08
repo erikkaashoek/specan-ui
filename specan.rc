@@ -24,9 +24,6 @@ IDR_SWEEPER_MENU MENU
         MENUITEM SEPARATOR
         MENUITEM "Quit", IDM_QUIT
     }
-//    POPUP ""
-//    {
-//    }
 }
 
 

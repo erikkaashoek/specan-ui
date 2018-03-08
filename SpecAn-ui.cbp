@@ -36,8 +36,12 @@
 			<Add library="user32" />
 			<Add library="kernel32" />
 			<Add library="comctl32" />
+			<Add library="libcomdlg32.a" />
 		</Linker>
-		<Unit filename="main.cpp" />
+		<Unit filename="resource.h" />
+		<Unit filename="specan.c">
+			<Option compilerVar="CC" />
+		</Unit>
 		<Extensions>
 			<code_completion />
 			<envvars />

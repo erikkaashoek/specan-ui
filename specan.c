@@ -4,6 +4,7 @@
 #include <math.h>
 #include "resource.h"
 #include <stdio.h>
+#include <errno.h>
 
 #define IDC_MAIN_STATUS 1000
 #define IDC_FREQ 1001
@@ -44,6 +45,8 @@ char inbuff[BUFF_MAX];
 int buff_count=0;
 int line_count = 0;
 
+#define IF1 110000000
+#define IF2  10700000
 /* arrays to hold readings */
 #define MAX_READINGS 100000
 struct Reading {
@@ -59,7 +62,7 @@ int nrefReadings=0;
 /* these are last selection from the sweep dialog */
 int selectedSpan=9;
 int selectedSteps=3;
-int centerFreq = 30000000L;
+int centerFreq = 3000000L;
 int startFreq, endFreq;
 int stepSize = 2000;
 int	markFrequency = 0; //in Hz
@@ -88,7 +91,7 @@ struct Range spans[RANGE_COUNT] = {
   {3000000, 500000, "3 MHz"},
   {10000000, 500000, "10MHz"},
   {30000000, 5000000, "30 MHz"},
-  {50000000, 10000000, "50 Mhz"}
+  {100000000, 10000000, "100 Mhz"}
 };
 
 /* resolution of steps offered by the sweep menu dialog */
@@ -100,7 +103,7 @@ struct Step {
 #define STEPS_COUNT 5
 struct Step steps[STEPS_COUNT] = {
   {10, "10 steps"},
-  {30, "300 steps"},
+  {30, "30 steps"},
   {100, "100 steps"},
   {300, "300 steps"},
   {600, "600 steps"}
@@ -135,7 +138,7 @@ void setStatus2(char *msg){
 void setReadOut(int power, int frequency){
   char readOut[100];
 
-  sprintf(readOut, "Power : %d.%02dbm, Freq : %d.%03d.%03", power/10, abs(power % 10),
+  sprintf(readOut, "Power : %d.%02dbm, Freq : %d.%03d.%03d", power/10, abs(power % 10),
     frequency/1000000, (frequency % 1000000)/1000, frequency % 1000);
   SendMessage(statusWnd, SB_SETTEXT, 1, (LPARAM)readOut);
 }
@@ -245,7 +248,7 @@ void loadCaliberation(){
 	    }
    }
 
-	close();
+	fclose(pf);
   InvalidateRect(mainWnd, NULL, TRUE);
   UpdateWindow(mainWnd);
 }
@@ -292,23 +295,23 @@ void enterReading(char *string){
   rfpower = atoi(c);
 
   readings[nextReading].frequency = freq;
-  readings[nextReading].power = rfpower;
+  readings[nextReading].power = -rfpower;
   sprintf(c, "%d, %d, %d, %d\n", nextReading, readings[nextReading].frequency , readings[nextReading].power, atoi(c));
   logger(c);
   sprintf(c, "Reading %d/%d", nextReading, (endFreq-startFreq)/stepSize);
-  setStatus(c);
+  if (nextReading % 5 == 0) setStatus(c);
   nextReading++;
 
-	InvalidateRect(mainWnd, NULL, FALSE);
-	UpdateWindow(mainWnd);
+//	InvalidateRect(mainWnd, NULL, FALSE);
+//	UpdateWindow(mainWnd);
 }
 
 void serialReceived (){
   char c[BUFF_MAX], string[BUFF_MAX];
 
-  if (DEBUG) printf("<%s\n",inbuff);
-  sprintf(c, "Rx [%s]\n", inbuff);
-  logger(c);
+  if (DEBUG) {if (inbuff[0] != 'r') printf("<%s\n",inbuff); }
+  //sprintf(c, "Rx [%s]\n", inbuff);
+  //logger(c);
 
   switch(*inbuff){
     case 'k':
@@ -334,8 +337,8 @@ void setupSweep(){
   char c[100];
   int f1, f2;
 
-	closeSerialPort();
-	openSerialPort(currentPort);
+//	closeSerialPort();
+//	openSerialPort(currentPort);
 
   endFreq = centerFreq + spans[selectedSpan].width;
   startFreq = centerFreq - spans[selectedSpan].width;
@@ -346,14 +349,17 @@ void setupSweep(){
 
   sprintf(c, "a%d\n", f1);
   serialWrite(c);
-  Sleep(100);
+  Sleep(10);
   sprintf(c, "b%d\n", f2);
   serialWrite(c);
-  Sleep(100);
+  Sleep(10);
+  sprintf(c, "t2\n");
+  serialWrite(c);
+  Sleep(10);
   //sprintf(c, "s%d\n", stepSize);
   sprintf(c, "s%d\n", steps[selectedSteps].nsteps);
   serialWrite(c);
-  Sleep(100);
+  Sleep(10);
 
 //	if (IsDlgButtonChecked(mainWnd, IDC_1KHZ))
 //		serialWrite("n\n");
@@ -553,7 +559,7 @@ BOOL CALLBACK dlgSweep(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
 
   if (Msg == WM_INITDIALOG){
 
-      SendDlgItemMessage(hWnd, IDC_CENTER, EM_LIMITTEXT, 6, 0);
+      SendDlgItemMessage(hWnd, IDC_CENTER, EM_LIMITTEXT, 7, 0);
 
       /* populate the list boxes */
       for (i = 0; i < RANGE_COUNT; i++)
@@ -591,15 +597,15 @@ BOOL CALLBACK dlgSweep(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
         if (f1 < 0){
           MessageBox(hWnd, "The range is too wide for the central frequency\r\nEither reduce the centeral freq or the range",
           "Wrong Range", MB_OK);
-          return;
+          return FALSE;
         }
         centerFreq = newcenter * 1000;
         selectedSpan = newspan;
         selectedSteps = SendDlgItemMessage(hWnd, IDC_NSTEPS, CB_GETCURSEL, 0, 0);
         setupSweep();
         startSweep();
-        InvalidateRect(mainWnd, NULL, TRUE);
-        UpdateWindow(mainWnd);
+        //InvalidateRect(mainWnd, NULL, TRUE);
+        //UpdateWindow(mainWnd);
       case IDCANCEL:
         EndDialog(hWnd, wParam);
         return 0;
@@ -748,8 +754,8 @@ void onSweep(HWND hWnd){
 
 	SendDlgItemMessage(hWnd, IDC_FREQ, WM_GETTEXT, 7, (LPARAM)c);
   newcenter = atoi(c);
-  if (newcenter > 200000){
-    MessageBox(hWnd, "The center frequency should be below 200,000KHz (200 MHz)", "Invalid Frequency", MB_OK);
+  if (newcenter > 250000){
+    MessageBox(hWnd, "The center frequency should be below 250,000KHz (250 MHz)", "Invalid Frequency", MB_OK);
     return;
   }
   f1 = (newcenter * 1000) - spans[newspan].width;
@@ -764,8 +770,8 @@ void onSweep(HWND hWnd){
   selectedSteps = SendDlgItemMessage(hWnd, IDC_STEPS, CB_GETCURSEL, 0, 0);
   setupSweep();
   startSweep();
-  InvalidateRect(hWnd, NULL, TRUE);
-  UpdateWindow(hWnd);
+  //InvalidateRect(hWnd, NULL, TRUE);
+  //UpdateWindow(hWnd);
 }
 void onPaint(HWND wnd){
   PAINTSTRUCT ps;
@@ -922,7 +928,7 @@ void setupControls(HWND hwnd){
 		GetModuleHandle(NULL),
 		NULL);
 	SendDlgItemMessage(hwnd, IDC_FREQ, WM_SETFONT, (WPARAM)fontText, 0);
-	SendDlgItemMessage(hwnd, IDC_FREQ, EM_SETLIMITTEXT, (WPARAM)5, 0);
+	SendDlgItemMessage(hwnd, IDC_FREQ, EM_SETLIMITTEXT, (WPARAM)7, 0);
 
   sprintf(c, "%d", centerFreq/1000);
   SendDlgItemMessage(hwnd, IDC_FREQ, WM_SETTEXT, 0, (LPARAM)c);
@@ -1112,8 +1118,8 @@ LRESULT CALLBACK WindowProcedure (HWND hwnd, UINT message, WPARAM wParam, LPARAM
 							}
 						}
 					}
-          InvalidateRect(mainWnd, NULL, TRUE);
-          UpdateWindow(mainWnd);
+          //InvalidateRect(mainWnd, NULL, TRUE);
+          //UpdateWindow(mainWnd);
           break;
         case WM_RBUTTONDOWN:
           /* if (continuous)

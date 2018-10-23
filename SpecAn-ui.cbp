@@ -14,6 +14,10 @@
 				<Compiler>
 					<Add option="-g" />
 				</Compiler>
+				<ExtraCommands>
+					<Add after='C:\msys32\usr\bin\cp.exe  C:\work\VNA\specan-ui\bin\Debug\Specan-ui.exe &quot;C:\Users\Erik\Google Drive\Arduino_PC\Specan-ui.exe&quot;' />
+					<Mode after="always" />
+				</ExtraCommands>
 			</Target>
 			<Target title="Release">
 				<Option output="bin/Release/SpecAn-ui" prefix_auto="1" extension_auto="1" />
@@ -26,6 +30,10 @@
 				<Linker>
 					<Add option="-s" />
 				</Linker>
+				<ExtraCommands>
+					<Add after="c:\msys32\mingw32\bin\strip.exe -g C:\work\VNA\specan-ui\bin\Release\Specan-ui.exe" />
+					<Add after='C:\msys32\usr\bin\cp.exe  C:\work\VNA\specan-ui\bin\Release\Specan-ui.exe &quot;C:\Users\Erik\Google Drive\RF\Specan-ui.exe&quot;' />
+				</ExtraCommands>
 			</Target>
 		</Build>
 		<Compiler>

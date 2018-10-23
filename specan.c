@@ -21,7 +21,7 @@
 
 #define TEXT_HEIGHT (17)
 
-#define DEBUG 1
+#define DEBUG 0
 
 /*  Make the main window class name into a global variable  */
 char szClassName[ ] = "WindowsApp";
@@ -62,8 +62,8 @@ int nrefReadings=0;
 /* these are last selection from the sweep dialog */
 int selectedSpan=9;
 int selectedSteps=3;
-int centerFreq = 3000000L;
-int startFreq, endFreq;
+int centerFreq = 30000000L;
+int startFreq = 0L, endFreq = 60000000L;
 int stepSize = 2000;
 int	markFrequency = 0; //in Hz
 int markPower = -1000; //in /10th of dbm
@@ -120,6 +120,7 @@ int	doRepaint = 0;
 #define Y_OFF 20
 
 void logger(char *string){
+    return;
   FILE *pf = fopen("sweeplog.txt", "a+t");
   if (!pf)
     return;
@@ -294,7 +295,7 @@ void enterReading(char *string){
   c[i] = 0;
   rfpower = atoi(c);
 
-  readings[nextReading].frequency = freq;
+  readings[nextReading].frequency = freq-IF1;
   readings[nextReading].power = -rfpower;
   sprintf(c, "%d, %d, %d, %d\n", nextReading, readings[nextReading].frequency , readings[nextReading].power, atoi(c));
   logger(c);
@@ -326,6 +327,10 @@ void serialReceived (){
       setStatus("Ready");
       InvalidateRect(mainWnd, NULL, TRUE);
       UpdateWindow(mainWnd);
+      if (continuous) {
+        Sleep(10);
+        startSweep();
+      }
       break;
     case 'r':
       enterReading(inbuff);
@@ -340,6 +345,28 @@ void setupSweep(){
 //	closeSerialPort();
 //	openSerialPort(currentPort);
 
+  sprintf(c, "v2\n");
+  serialWrite(c);
+  Sleep(10);
+  sprintf(c, "a%d\n", IF1-IF2);
+  serialWrite(c);
+  Sleep(10);
+  sprintf(c, "b%d\n", IF1-IF2);
+  serialWrite(c);
+  Sleep(10);
+  sprintf(c, "t2\n");
+  serialWrite(c);
+  Sleep(10);
+  //sprintf(c, "s%d\n", stepSize);
+  sprintf(c, "s%d\n", 1);
+  serialWrite(c);
+  Sleep(10);
+  sprintf(c, "m\n");
+  serialWrite(c);
+  Sleep(10);
+
+
+
   endFreq = centerFreq + spans[selectedSpan].width;
   startFreq = centerFreq - spans[selectedSpan].width;
 
@@ -347,10 +374,13 @@ void setupSweep(){
 	f1 = startFreq;
 	stepSize = (f2 - f1) / steps[selectedSteps].nsteps;
 
-  sprintf(c, "a%d\n", f1);
+  sprintf(c, "v0\n");
   serialWrite(c);
   Sleep(10);
-  sprintf(c, "b%d\n", f2);
+  sprintf(c, "a%d\n", f1+IF1);
+  serialWrite(c);
+  Sleep(10);
+  sprintf(c, "b%d\n", f2+IF1);
   serialWrite(c);
   Sleep(10);
   sprintf(c, "t2\n");
@@ -375,30 +405,37 @@ void startSweep(){
     nextReading = 0;
     sweeperIsBusy = 1;
   }
-  SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+  //SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 }
 
 void serialPoll(){
   char c;
   DWORD n = 0;
+  int i=0;
   char string[100];
-
+  char s[100];
   if (serialPort == NULL)
     return;
 
   while (ReadFile(serialPort, &c, 1, &n, NULL) > 0){
     if (n != 1)
       break;
-
+    i++;
     if (c == '\n'){
       inbuff[buff_count] = 0;
       serialReceived();
       buff_count = 0;
+      if (continuous && inbuff[0]=='e')
+        break;
     }
     else if (buff_count < BUFF_MAX-1){
         inbuff[buff_count++] = c;
     }
   } /* end of the loop */
+  if (i>0) {
+    sprintf(s, "Poll received: %i\n", i);
+    logger(s);
+  }
 }
 
 /* get a save as file name */
@@ -793,7 +830,8 @@ void onPaint(HWND wnd){
   Rectangle(hdc, X_OFF, Y_OFF, DISPLAY_WIDTH + X_OFF, DISPLAY_HEIGHT + Y_OFF);
   f2 = centerFreq + spans[selectedSpan].width;
   f1 = centerFreq - spans[selectedSpan].width;
-
+  startFreq = f1; // Needed for freqToScreen before set sweep is done
+  endFreq = f2;
   for (f = centerFreq; f < f2; f = f+spans[selectedSpan].divisions){
     x = freqToScreenx(f);
     SelectObject(hdc, penBlue);
@@ -1023,7 +1061,7 @@ LRESULT CALLBACK WindowProcedure (HWND hwnd, UINT message, WPARAM wParam, LPARAM
     {
         case WM_CREATE:
           setStatus("Initializing...");
-          SetTimer(hwnd, 1, 10, NULL); /* timer 1 polls for more data from sweeperino's serial port */
+          SetTimer(hwnd, 1, 1, NULL); /* timer 1 polls for more data from sweeperino's serial port */
           SetTimer(hwnd, 2, 200, NULL); /* timer 2 polls for current power meter reading from the sweeperino */
           logger("Started log\n");
 					setupControls(hwnd);
@@ -1122,10 +1160,10 @@ LRESULT CALLBACK WindowProcedure (HWND hwnd, UINT message, WPARAM wParam, LPARAM
           //UpdateWindow(mainWnd);
           break;
         case WM_RBUTTONDOWN:
-          /* if (continuous)
+          if (continuous)
             continuous  = 0;
           else
-            continuous = 1; */
+            continuous = 1;
           setupSweep();
           startSweep();
           break;
@@ -1187,7 +1225,7 @@ int startEverything(){
     penBlue = CreatePen(PS_SOLID, 1, RGB(160,160,255));
     penGray = CreatePen(PS_SOLID, 1, RGB(160,160,160));
     penRed  = CreatePen(PS_SOLID, 1, RGB(255,0,0));
-		penBlack= CreatePen(PS_SOLID, 2, RGB(0,0,0));
+		penBlack= CreatePen(PS_SOLID, 1, RGB(0,0,0));
 
 
     /* The class is registered, let's create the program*/

@@ -32,7 +32,7 @@
 				</Linker>
 				<ExtraCommands>
 					<Add after="c:\msys32\mingw32\bin\strip.exe -g C:\work\VNA\specan-ui\bin\Release\Specan-ui.exe" />
-					<Add after='C:\msys32\usr\bin\cp.exe  C:\work\VNA\specan-ui\bin\Release\Specan-ui.exe &quot;C:\Users\Erik\Google Drive\RF\Specan-ui.exe&quot;' />
+					<Add after='C:\msys32\usr\bin\cp.exe  C:\work\VNA\specan-ui\bin\Release\Specan-ui.exe &quot;C:\Users\Erik\Google Drive\Arduino_PC\Specan-ui.exe&quot;' />
 				</ExtraCommands>
 			</Target>
 		</Build>

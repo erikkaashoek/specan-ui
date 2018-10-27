@@ -17,6 +17,7 @@
 #define IDC_MARK 1008
 #define IDC_READING 1009
 #define IDC_DIFF 1010
+#define IDC_FIRST 1011  // First IF frequency
 #define MARK_ME 100 //in the popup - menu
 
 #define TEXT_HEIGHT (17)
@@ -45,8 +46,6 @@ char inbuff[BUFF_MAX];
 int buff_count=0;
 int line_count = 0;
 
-#define IF1 110000000
-#define IF2  10700000
 /* arrays to hold readings */
 #define MAX_READINGS 100000
 struct Reading {
@@ -59,11 +58,15 @@ struct Reading refReadings[MAX_READINGS];
 int nextReading=0;
 int nrefReadings=0;
 
+#define IF1 firstIF
+#define IF2  10700000
+
 /* these are last selection from the sweep dialog */
-int selectedSpan=9;
+int selectedSpan=10;
 int selectedSteps=3;
-int centerFreq = 30000000L;
-int startFreq = 0L, endFreq = 60000000L;
+int centerFreq = 50000000L;
+int firstIF = 110700000L;
+int startFreq = 0L, endFreq = 100000000L;
 int stepSize = 2000;
 int	markFrequency = 0; //in Hz
 int markPower = -1000; //in /10th of dbm
@@ -91,7 +94,7 @@ struct Range spans[RANGE_COUNT] = {
   {3000000, 500000, "3 MHz"},
   {10000000, 500000, "10MHz"},
   {30000000, 5000000, "30 MHz"},
-  {100000000, 10000000, "100 Mhz"}
+  {50000000, 5000000, "50 Mhz"}
 };
 
 /* resolution of steps offered by the sweep menu dialog */
@@ -610,6 +613,8 @@ BOOL CALLBACK dlgSweep(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
       SendDlgItemMessage(hWnd, IDC_NSTEPS, CB_SETCURSEL, (WPARAM)selectedSteps, 0);
       sprintf(c, "%d", centerFreq/1000);
       SendDlgItemMessage(hWnd, IDC_CENTER, WM_SETTEXT, 0, (LPARAM)c);
+      sprintf(c, "%d", firstIF/1000);
+      SendDlgItemMessage(hWnd, IDC_FIRST, WM_SETTEXT, 0, (LPARAM)c);
 
       /* stop the power meter polling */
       KillTimer(mainWnd, 2);
@@ -655,16 +660,23 @@ BOOL CALLBACK dlgSweep(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
 
 BOOL CALLBACK dlgPortSetting(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
     char c[10];
+#define MAXPORTS 20
+    int p[MAXPORTS];
+    int lp=0;
     int i;
 
     /* fill the ports list and set it to the current selection */
     if (Msg == WM_INITDIALOG){
-      for (i = 1; i < 20; i++){
-        sprintf(c, "COM%d", i);
-        SendDlgItemMessage(hWnd, IDC_PORT, CB_ADDSTRING, 0, (LPARAM)c);
+      for (i = 0; i < MAXPORTS; i++){
+        closeSerialPort();
+        if(!openSerialPort(i+1)){ /*if the port opened, then save the caliberation file */
+            sprintf(c, "COM%d", i+1);
+            SendDlgItemMessage(hWnd, IDC_PORT, CB_ADDSTRING, 0, (LPARAM)c);
+            p[lp++]=i+1; // Remember which port at this index
+        }
       }
       if (currentPort != -1)
-        SendDlgItemMessage(hWnd, IDC_PORT, CB_SETCURSEL, (WPARAM)currentPort, 0L);
+        SendDlgItemMessage(hWnd, IDC_PORT, CB_SETCURSEL, (WPARAM)currentPort-1, 0L);
     }
     if (Msg == WM_COMMAND) {
       switch(LOWORD(wParam)){
@@ -672,8 +684,8 @@ BOOL CALLBACK dlgPortSetting(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) 
           i = SendDlgItemMessage(hWnd, IDC_PORT, CB_GETCURSEL, 0, 0);
           /* the list starts with zero index, and the com ports start with com1, so we add 1 to the index */
           CloseHandle(serialPort);
-          if(!openSerialPort(i+1)){ /*if the port opened, then save the caliberation file */
-						currentPort = i + 1;
+          if(!openSerialPort(p[i]+1)){ /*if the port opened, then save the caliberation file */
+						currentPort = p[i] + 1;
 				    saveCaliberation();
 		      }
 		      else {
@@ -775,6 +787,8 @@ void loadControls(HWND hwnd){
 	char c[100];
   sprintf(c, "%d", centerFreq/1000);
   SendDlgItemMessage(hwnd, IDC_FREQ, WM_SETTEXT, 0, (LPARAM)c);
+  sprintf(c, "%d", firstIF/1000);
+  SendDlgItemMessage(hwnd, IDC_FIRST, WM_SETTEXT, 0, (LPARAM)c);
   SendDlgItemMessage(hwnd, IDC_SPAN, CB_SETCURSEL, (WPARAM)selectedSpan, 0);
   SendDlgItemMessage(hwnd, IDC_STEPS, CB_SETCURSEL, (WPARAM)selectedSteps, 0);
 }
@@ -803,6 +817,10 @@ void onSweep(HWND hWnd){
     return;
   }
   centerFreq = newcenter * 1000;
+
+  SendDlgItemMessage(hWnd, IDC_FIRST, WM_GETTEXT, 7, (LPARAM)c);
+  firstIF = atoi(c)*1000;
+
   selectedSpan = newspan;
   selectedSteps = SendDlgItemMessage(hWnd, IDC_STEPS, CB_GETCURSEL, 0, 0);
   setupSweep();
@@ -1045,6 +1063,34 @@ void setupControls(HWND hwnd){
 		NULL);
 	SendMessage(w, WM_SETFONT, (WPARAM)fontText, TRUE);
 
+	y += (TEXT_HEIGHT * 3)/2;
+
+//-------------
+	w = CreateWindow("static", "First IF Freq (KHz):",
+		WS_CHILD|WS_VISIBLE,
+		(X_OFF * 2) + DISPLAY_WIDTH + 60, y, 150, (TEXT_HEIGHT * 3)/2, hwnd,
+		(HMENU)IDC_STATIC,
+		GetModuleHandle(NULL),
+		NULL);
+	SendMessage(w, WM_SETFONT, (WPARAM)fontText, TRUE);
+	y+= TEXT_HEIGHT;
+
+	CreateWindowEx(WS_EX_CLIENTEDGE, "EDIT","",
+		WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL|ES_NUMBER,
+		(X_OFF * 2) + DISPLAY_WIDTH + 60, 4 + y, 100, (TEXT_HEIGHT * 3)/2, hwnd,
+		(HMENU)IDC_FIRST,
+		GetModuleHandle(NULL),
+		NULL);
+	SendDlgItemMessage(hwnd, IDC_FIRST, WM_SETFONT, (WPARAM)fontText, 0);
+	SendDlgItemMessage(hwnd, IDC_FIRST, EM_SETLIMITTEXT, (WPARAM)7, 0);
+
+  sprintf(c, "%d", firstIF/1000);
+  SendDlgItemMessage(hwnd, IDC_FIRST, WM_SETTEXT, 0, (LPARAM)c);
+
+
+//------------
+
+
 
   SendDlgItemMessage(hwnd, IDC_SPAN, CB_SETCURSEL, (WPARAM)selectedSpan, 0);
   SendDlgItemMessage(hwnd, IDC_STEPS, CB_SETCURSEL, (WPARAM)selectedSteps, 0);
@@ -1101,10 +1147,10 @@ LRESULT CALLBACK WindowProcedure (HWND hwnd, UINT message, WPARAM wParam, LPARAM
             case IDM_SAVE_AS:
               onSaveAs();
               break;
-						case IDC_SWEEP:
-							if (HIWORD(wParam) == BN_CLICKED)
-								onSweep(hwnd);
-							break;
+            case IDC_SWEEP:
+              if (HIWORD(wParam) == BN_CLICKED)
+                onSweep(hwnd);
+			  break;
           }
           break;
         case WM_PAINT:

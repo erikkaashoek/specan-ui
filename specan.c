@@ -73,8 +73,11 @@ int markPower = -1000; //in /10th of dbm
 
 /* flag that tells you that sweeperino is busy doing a sweep */
 int sweeperIsBusy = 0;
-/* flag that triggers continous sweeps */
+/* flag that triggers continuous sweeps */
 int continuous = 0;
+// Set to enable continuous sweep click
+int firstSweep = 0;
+
 
 /* ranges of sweeps offered by the sweep menu dialog */
 struct Range{
@@ -214,17 +217,16 @@ void closeSerialPort(){
 
 void saveCaliberation(){
   FILE *pf;
-  int i;
-
   pf = fopen("sweeperino.caliberation", "wt");
   if (!pf)
     return;
 	fprintf(pf, "port:%d\n", currentPort);
+	fprintf(pf, "firstIF:%d\n", firstIF);
 }
 
 void loadCaliberation(){
     FILE *pf;
-    char buff[100], key[20], c[100], *p, *q;
+    char buff[100], key[20],*p;
     int value;
 
     pf = fopen("sweeperino.caliberation", "rt");
@@ -244,11 +246,13 @@ void loadCaliberation(){
       p = strtok(NULL, " \n");
 
       value = atoi(p);
-
-			if (!strcmp(key, "port")){
-				closeSerialPort();
+        if (!strcmp(key, "port")){
+			closeSerialPort();
 		    if (openSerialPort(value))
 		      setStatus("Serial port error");
+	    }
+        if (!strcmp(key, "firstIF")){
+            firstIF = value;
 	    }
    }
 
@@ -275,9 +279,10 @@ int  serialWrite(char *c){
 */
 void enterReading(char *string){
   int freq, rfpower, i;
-  char c[100], s[100];
-  HDC dc;
-  HANDLE oldpen;
+  char c[100];
+ // char s[100];
+ // HDC dc;
+ // HANDLE oldpen;
 
   if (*string++ != 'r')
     return;
@@ -310,36 +315,9 @@ void enterReading(char *string){
 //	UpdateWindow(mainWnd);
 }
 
-void serialReceived (){
-  char c[BUFF_MAX], string[BUFF_MAX];
-
-  if (DEBUG) {if (inbuff[0] != 'r') printf("<%s\n",inbuff); }
-  //sprintf(c, "Rx [%s]\n", inbuff);
-  //logger(c);
-
-  switch(*inbuff){
-    case 'k':
-      break;
-    case 'b':
-      nextReading = 0;
-      sweeperIsBusy = 1;
-      setStatus("Busy...");
-      break;
-    case 'e':
-      sweeperIsBusy = 0;
-      setStatus("Ready");
-      InvalidateRect(mainWnd, NULL, TRUE);
-      UpdateWindow(mainWnd);
-      if (continuous) {
-        Sleep(10);
-        startSweep();
-      }
-      break;
-    case 'r':
-      enterReading(inbuff);
-			break;
-  }
-}
+int oldSteps = -1;
+int oldSpan = -1;
+long oldCenterFreq = -1;
 
 void setupSweep(){
   char c[100];
@@ -393,6 +371,11 @@ void setupSweep(){
   sprintf(c, "s%d\n", steps[selectedSteps].nsteps);
   serialWrite(c);
   Sleep(10);
+    oldSteps = selectedSteps;
+    oldSpan = selectedSpan;
+    oldCenterFreq = centerFreq;
+
+
 
 //	if (IsDlgButtonChecked(mainWnd, IDC_1KHZ))
 //		serialWrite("n\n");
@@ -410,12 +393,49 @@ void startSweep(){
   }
   //SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 }
+void serialReceived (){
+  // char c[BUFF_MAX];
+  // char string[BUFF_MAX];
+
+  if (DEBUG) {if (inbuff[0] != 'r') printf("<%s\n",inbuff); }
+  //sprintf(c, "Rx [%s]\n", inbuff);
+  //logger(c);
+
+  switch(*inbuff){
+    case 'k':
+      break;
+    case 'b':
+      nextReading = 0;
+      sweeperIsBusy = 1;
+      setStatus("Busy...");
+      break;
+    case 'e':
+      sweeperIsBusy = 0;
+      setStatus("Ready");
+      InvalidateRect(mainWnd, NULL, TRUE);
+      UpdateWindow(mainWnd);
+      firstSweep = 0;
+      if (continuous) {
+        Sleep(10);
+        if (oldSteps != selectedSteps &&
+            oldSpan != selectedSpan &&
+            oldCenterFreq != centerFreq) {
+            setupSweep();
+        }
+        startSweep();
+      }
+      break;
+    case 'r':
+      enterReading(inbuff);
+			break;
+  }
+}
 
 void serialPoll(){
   char c;
   DWORD n = 0;
   int i=0;
-  char string[100];
+ // char string[100];
   char s[100];
   if (serialPort == NULL)
     return;
@@ -595,7 +615,7 @@ void onSaveAs(){
 
 BOOL CALLBACK dlgSweep(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
     char c[10];
-    int i, center, newspan, newcenter, newsteps, f1, f2;
+    int i, newspan, newcenter, f1, f2;
 
   if (Msg == WM_INITDIALOG){
 
@@ -632,11 +652,11 @@ BOOL CALLBACK dlgSweep(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
         newcenter = atoi(c);
         if (newcenter > 200000){
           MessageBox(hWnd, "The center frequency should be below 200,000KHz (200 MHz)", "Invalid Frequency", MB_OK);
-          return;
+          return FALSE;
         }
         f1 = (newcenter * 1000) - spans[newspan].width;
         f2 = (newcenter * 1000) + spans[newspan].width;
-        if (f1 < 0){
+        if (f1 < 0 || f2 > 250000){
           MessageBox(hWnd, "The range is too wide for the central frequency\r\nEither reduce the centeral freq or the range",
           "Wrong Range", MB_OK);
           return FALSE;
@@ -653,26 +673,27 @@ BOOL CALLBACK dlgSweep(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     }
   }
-  else
+//  else
     return FALSE;
 
 }
 
+
 BOOL CALLBACK dlgPortSetting(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
     char c[10];
 #define MAXPORTS 20
-    int p[MAXPORTS];
+static int p[MAXPORTS];
     int lp=0;
     int i;
 
     /* fill the ports list and set it to the current selection */
     if (Msg == WM_INITDIALOG){
-      for (i = 0; i < MAXPORTS; i++){
+      for (i = 1; i <= MAXPORTS; i++){
         closeSerialPort();
-        if(!openSerialPort(i+1)){ /*if the port opened, then save the caliberation file */
-            sprintf(c, "COM%d", i+1);
+        if(!openSerialPort(i)){ /*if the port opened, then save the caliberation file */
+            sprintf(c, "COM%d", i);
             SendDlgItemMessage(hWnd, IDC_PORT, CB_ADDSTRING, 0, (LPARAM)c);
-            p[lp++]=i+1; // Remember which port at this index
+            p[lp++]=i; // Remember which port at this index
         }
       }
       if (currentPort != -1)
@@ -682,10 +703,10 @@ BOOL CALLBACK dlgPortSetting(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) 
       switch(LOWORD(wParam)){
         case IDOK:
           i = SendDlgItemMessage(hWnd, IDC_PORT, CB_GETCURSEL, 0, 0);
-          /* the list starts with zero index, and the com ports start with com1, so we add 1 to the index */
+          /* the list starts with zero index */
           CloseHandle(serialPort);
-          if(!openSerialPort(p[i]+1)){ /*if the port opened, then save the caliberation file */
-						currentPort = p[i] + 1;
+          if(!openSerialPort(p[i])){ /*if the port opened, then save the caliberation file */
+						currentPort = p[i];
 				    saveCaliberation();
 		      }
 		      else {
@@ -698,13 +719,13 @@ BOOL CALLBACK dlgPortSetting(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) 
           return 0;
       }
     }
-    else
+//    else
       return FALSE;
 
 }
 
 int freqToScreenx(int freq){
-  int f1, f2, x;
+  //int f1, f2, x;
 
   /* f1 = centerFreq - spans[selectedSpan].width;
   f2 = centerFreq + spans[selectedSpan].width; */
@@ -712,7 +733,7 @@ int freqToScreenx(int freq){
 }
 
 int screenToFreq(int x){
-  int f1, f2;
+//  int f1, f2;
 
   x = x - X_OFF;
 /*  f1 = centerFreq - spans[selectedSpan].width;
@@ -722,7 +743,7 @@ int screenToFreq(int x){
 
 /* in 1/10th of db, starting from -100dbm to 0 dbm */
 int screenToPower(int y){
-  /* y = DISPLAY_HEIGHT + Y_OFF - y; /* invert the y axis */
+  // y = DISPLAY_HEIGHT + Y_OFF - y; // invert the y axis */
   //return  (1000 * y)/DISPLAY_HEIGHT -1000; *
 	return ((Y_OFF-y) * 1000)/DISPLAY_HEIGHT;
 
@@ -748,7 +769,7 @@ int frequencyToPower(int freq){
 
 /* this searches the caliberation readings and gets an approximate reference for the reading */
 int getReference(int frequency){
-  char buff[100];
+//  char buff[100];
   int i, bestmatch = 0;
   for (i = 0; i < MAX_READINGS; i++)
     if (abs(frequency - refReadings[i].frequency) <= abs(frequency - refReadings[bestmatch].frequency))
@@ -776,6 +797,7 @@ void plotReference(HDC hdc){
   HANDLE oldpen;
 
   oldpen = SelectObject(hdc, penRed);
+  i=0;
   MoveToEx(hdc, freqToScreenx(readings[i].frequency), powerToScreen(getReference(readings[i].frequency)), NULL);
   for (i = 0; i < nextReading-1; i++){
     LineTo(hdc, freqToScreenx(readings[i].frequency), powerToScreen(getReference(readings[i].frequency)));
@@ -810,8 +832,18 @@ void onSweep(HWND hWnd){
     return;
   }
   f1 = (newcenter * 1000) - spans[newspan].width;
+  if (f1<0) {
+    newcenter += -f1/1000;  // Automatic adapt center freq from range
+    f1 = 0;
+	MessageBox(hWnd, "Increased central frequency to fit sweep range", "Frequency adjusted", MB_OK);
+  }
   f2 = (newcenter * 1000) + spans[newspan].width;
-  if (f1 < 0){
+  if (f2>250000000) {
+    newcenter -= -(f2-250000000)/1000;  // Automatic adapt center freq from range
+    f2 = 250000000;
+	MessageBox(hWnd, "Increased central frequency to fit sweep range", "Frequency adjusted", MB_OK);
+  }
+  if (f1 < 0 || f2 > 250000000){
 		MessageBox(hWnd, "The range is too wide for the central frequency\r\nEither reduce the centeral freq or the range",
       "Wrong Range", MB_OK);
     return;
@@ -831,9 +863,9 @@ void onSweep(HWND hWnd){
 void onPaint(HWND wnd){
   PAINTSTRUCT ps;
   HDC hdc;
-  int markers, f1, f2, f, i, x, y;
+  int f1, f2, f, i, x, y;
   char c[100];
-  HANDLE oldpen;
+ // HANDLE oldpen;
 
   hdc = BeginPaint(wnd, &ps);
   SelectObject(hdc, GetStockObject(BLACK_PEN));
@@ -893,7 +925,7 @@ void setMark(int x, int y){
   markFrequency = currentFrequency;
 	markPower = currentPower;
   sprintf(c, "MARK: %d.%03d.%03d %d.%ddbm",
-			markFrequency/1000000L, (markFrequency % 1000000L)/1000, markFrequency % 1000,
+			markFrequency/1000000, (markFrequency % 1000000)/1000, markFrequency % 1000,
 			markPower/10, abs(markPower%10));
 	SendDlgItemMessage(mainWnd, IDC_MARK, WM_SETTEXT, 0, (LPARAM)c);
 
@@ -906,18 +938,18 @@ void onMouseMove(int x, int y){
   currentFrequency = screenToFreq(x);
 	currentPower = frequencyToPower(currentFrequency);
   sprintf(c, "Freq: %d.%03d.%03d Hz Power:%d.%d db",
-			currentFrequency/1000000L, (currentFrequency % 1000000L)/1000, currentFrequency % 1000,
+			currentFrequency/1000000, (currentFrequency % 1000000)/1000, currentFrequency % 1000,
 			currentPower/10, abs(currentPower%10));
   setStatus2(c);
   sprintf(c, "MHz:%d.%03d.%03d  Power:%d.%ddbm",
-			currentFrequency/1000000L, (currentFrequency % 1000000L)/1000, currentFrequency % 1000,
+			currentFrequency/1000000, (currentFrequency % 1000000)/1000, currentFrequency % 1000,
 			currentPower/10, abs(currentPower%10));
 	SendDlgItemMessage(mainWnd, IDC_READING, WM_SETTEXT, 0, (LPARAM)c);
 
 	diffPower = markPower - currentPower;
 	diffFrequency = markFrequency - currentFrequency;
   sprintf(c, "DIFF: %d.%03d.%03d %d.%ddbm",
-			diffFrequency/1000000L, abs(diffFrequency % 1000000L)/1000, abs(diffFrequency % 1000),
+			diffFrequency/1000000, abs(diffFrequency % 1000000)/1000, abs(diffFrequency % 1000),
 			diffPower/10, abs(diffPower%10));
 	SendDlgItemMessage(mainWnd, IDC_DIFF, WM_SETTEXT, 0, (LPARAM)c);
 }
@@ -1148,8 +1180,19 @@ LRESULT CALLBACK WindowProcedure (HWND hwnd, UINT message, WPARAM wParam, LPARAM
               onSaveAs();
               break;
             case IDC_SWEEP:
-              if (HIWORD(wParam) == BN_CLICKED)
-                onSweep(hwnd);
+              if (firstSweep && continuous == 0) {
+                continuous = 1;
+                SendDlgItemMessage(hwnd, IDC_SWEEP, WM_SETTEXT, 0, (LPARAM)"STOP SWP");
+                break;
+              } else if (continuous && firstSweep == 0) {
+                continuous = 0;
+                firstSweep = 0;
+                SendDlgItemMessage(hwnd, IDC_SWEEP, WM_SETTEXT, 0, (LPARAM)"SWEEP");
+                break;
+              }
+              SendDlgItemMessage(hwnd, IDC_SWEEP, WM_SETTEXT, 0, (LPARAM)"CNT SWP");
+              firstSweep = 1;
+              onSweep(hwnd);
 			  break;
           }
           break;
@@ -1205,6 +1248,7 @@ LRESULT CALLBACK WindowProcedure (HWND hwnd, UINT message, WPARAM wParam, LPARAM
           //InvalidateRect(mainWnd, NULL, TRUE);
           //UpdateWindow(mainWnd);
           break;
+/*      Now started by double clicking SWEEP button, clicking SWEEP button again will stop
         case WM_RBUTTONDOWN:
           if (continuous)
             continuous  = 0;
@@ -1213,6 +1257,7 @@ LRESULT CALLBACK WindowProcedure (HWND hwnd, UINT message, WPARAM wParam, LPARAM
           setupSweep();
           startSweep();
           break;
+*/
         case WM_DESTROY:
         case WM_CLOSE:
           PostQuitMessage (0);       /* send a WM_QUIT to the message queue */
@@ -1315,11 +1360,11 @@ int WINAPI WinMain (HINSTANCE hThisInstance,
                     int nFunsterStil)
 
 {
-    HWND hwnd;               /* This is the handle for our window */
+//    HWND hwnd;               /* This is the handle for our window */
     MSG messages;            /* Here messages to the application are saved */
-    WNDCLASSEX wincl;        /* Data structure for the windowclass */
-    INITCOMMONCONTROLSEX initex;
-    LOGFONT lf;
+//    WNDCLASSEX wincl;        /* Data structure for the windowclass */
+//    INITCOMMONCONTROLSEX initex;
+//    LOGFONT lf;
 
     instance = hThisInstance;
 

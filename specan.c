@@ -17,7 +17,8 @@
 #define IDC_MARK 1008
 #define IDC_READING 1009
 #define IDC_DIFF 1010
-#define IDC_FIRST 1011  // First IF frequency
+#define IDC_MAX 1011    //Max frequency
+#define IDC_FIRST 1012  // First IF frequency
 #define MARK_ME 100 //in the popup - menu
 
 #define TEXT_HEIGHT (17)
@@ -66,6 +67,7 @@ int selectedSpan=10;
 int selectedSteps=3;
 int centerFreq = 50000000L;
 int firstIF = 110700000L;
+int maxFreq = 105000000L;
 int startFreq = 0L, endFreq = 100000000L;
 int stepSize = 2000;
 int	markFrequency = 0; //in Hz
@@ -222,6 +224,7 @@ void saveCaliberation(){
     return;
 	fprintf(pf, "port:%d\n", currentPort);
 	fprintf(pf, "firstIF:%d\n", firstIF);
+	fprintf(pf, "maxFreq:%d\n", maxFreq);
 }
 
 void loadCaliberation(){
@@ -253,6 +256,9 @@ void loadCaliberation(){
 	    }
         if (!strcmp(key, "firstIF")){
             firstIF = value;
+	    }
+        if (!strcmp(key, "maxFreq")){
+            maxFreq = value;
 	    }
    }
 
@@ -635,6 +641,8 @@ BOOL CALLBACK dlgSweep(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
       SendDlgItemMessage(hWnd, IDC_CENTER, WM_SETTEXT, 0, (LPARAM)c);
       sprintf(c, "%d", firstIF/1000);
       SendDlgItemMessage(hWnd, IDC_FIRST, WM_SETTEXT, 0, (LPARAM)c);
+      sprintf(c, "%d", maxFreq/1000);
+      SendDlgItemMessage(hWnd, IDC_MAX, WM_SETTEXT, 0, (LPARAM)c);
 
       /* stop the power meter polling */
       KillTimer(mainWnd, 2);
@@ -650,13 +658,13 @@ BOOL CALLBACK dlgSweep(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
         }
         SendDlgItemMessage(hWnd, IDC_CENTER, WM_GETTEXT, 7, (LPARAM)c);
         newcenter = atoi(c);
-        if (newcenter > 200000){
-          MessageBox(hWnd, "The center frequency should be below 200,000KHz (200 MHz)", "Invalid Frequency", MB_OK);
+        if (newcenter > maxFreq/1000){
+          MessageBox(hWnd, "The center frequency should be below 250,000KHz (250 MHz)", "Invalid Frequency", MB_OK);
           return FALSE;
         }
         f1 = (newcenter * 1000) - spans[newspan].width;
         f2 = (newcenter * 1000) + spans[newspan].width;
-        if (f1 < 0 || f2 > 250000){
+        if (f1 < 0 || f2 > maxFreq/1000){
           MessageBox(hWnd, "The range is too wide for the central frequency\r\nEither reduce the centeral freq or the range",
           "Wrong Range", MB_OK);
           return FALSE;
@@ -811,6 +819,8 @@ void loadControls(HWND hwnd){
   SendDlgItemMessage(hwnd, IDC_FREQ, WM_SETTEXT, 0, (LPARAM)c);
   sprintf(c, "%d", firstIF/1000);
   SendDlgItemMessage(hwnd, IDC_FIRST, WM_SETTEXT, 0, (LPARAM)c);
+  sprintf(c, "%d", maxFreq/1000);
+  SendDlgItemMessage(hwnd, IDC_MAX, WM_SETTEXT, 0, (LPARAM)c);
   SendDlgItemMessage(hwnd, IDC_SPAN, CB_SETCURSEL, (WPARAM)selectedSpan, 0);
   SendDlgItemMessage(hwnd, IDC_STEPS, CB_SETCURSEL, (WPARAM)selectedSteps, 0);
 }
@@ -827,7 +837,7 @@ void onSweep(HWND hWnd){
 
 	SendDlgItemMessage(hWnd, IDC_FREQ, WM_GETTEXT, 7, (LPARAM)c);
   newcenter = atoi(c);
-  if (newcenter > 250000){
+  if (newcenter > maxFreq/1000){
     MessageBox(hWnd, "The center frequency should be below 250,000KHz (250 MHz)", "Invalid Frequency", MB_OK);
     return;
   }
@@ -838,12 +848,12 @@ void onSweep(HWND hWnd){
 	MessageBox(hWnd, "Increased central frequency to fit sweep range", "Frequency adjusted", MB_OK);
   }
   f2 = (newcenter * 1000) + spans[newspan].width;
-  if (f2>250000000) {
-    newcenter -= -(f2-250000000)/1000;  // Automatic adapt center freq from range
-    f2 = 250000000;
+  if (f2>maxFreq) {
+    newcenter -= -(f2-maxFreq)/1000;  // Automatic adapt center freq from range
+    f2 = maxFreq;
 	MessageBox(hWnd, "Increased central frequency to fit sweep range", "Frequency adjusted", MB_OK);
   }
-  if (f1 < 0 || f2 > 250000000){
+  if (f1 < 0 || f2 > maxFreq){
 		MessageBox(hWnd, "The range is too wide for the central frequency\r\nEither reduce the centeral freq or the range",
       "Wrong Range", MB_OK);
     return;
@@ -852,6 +862,8 @@ void onSweep(HWND hWnd){
 
   SendDlgItemMessage(hWnd, IDC_FIRST, WM_GETTEXT, 7, (LPARAM)c);
   firstIF = atoi(c)*1000;
+  SendDlgItemMessage(hWnd, IDC_MAX, WM_GETTEXT, 7, (LPARAM)c);
+  maxFreq = atoi(c)*1000;
 
   selectedSpan = newspan;
   selectedSteps = SendDlgItemMessage(hWnd, IDC_STEPS, CB_GETCURSEL, 0, 0);
@@ -1098,6 +1110,29 @@ void setupControls(HWND hwnd){
 	y += (TEXT_HEIGHT * 3)/2;
 
 //-------------
+	w = CreateWindow("static", "Max frequency (KHz):",
+		WS_CHILD|WS_VISIBLE,
+		(X_OFF * 2) + DISPLAY_WIDTH + 60, y, 150, (TEXT_HEIGHT * 3)/2, hwnd,
+		(HMENU)IDC_STATIC,
+		GetModuleHandle(NULL),
+		NULL);
+	SendMessage(w, WM_SETFONT, (WPARAM)fontText, TRUE);
+	y+= TEXT_HEIGHT;
+
+	CreateWindowEx(WS_EX_CLIENTEDGE, "EDIT","",
+		WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL|ES_NUMBER,
+		(X_OFF * 2) + DISPLAY_WIDTH + 60, 4 + y, 100, (TEXT_HEIGHT * 3)/2, hwnd,
+		(HMENU)IDC_MAX,
+		GetModuleHandle(NULL),
+		NULL);
+	SendDlgItemMessage(hwnd, IDC_MAX, WM_SETFONT, (WPARAM)fontText, 0);
+	SendDlgItemMessage(hwnd, IDC_MAX, EM_SETLIMITTEXT, (WPARAM)7, 0);
+
+  sprintf(c, "%d", maxFreq/1000);
+  SendDlgItemMessage(hwnd, IDC_MAX, WM_SETTEXT, 0, (LPARAM)c);
+
+    y+= (TEXT_HEIGHT * 3)/2;
+
 	w = CreateWindow("static", "First IF Freq (KHz):",
 		WS_CHILD|WS_VISIBLE,
 		(X_OFF * 2) + DISPLAY_WIDTH + 60, y, 150, (TEXT_HEIGHT * 3)/2, hwnd,
@@ -1105,6 +1140,7 @@ void setupControls(HWND hwnd){
 		GetModuleHandle(NULL),
 		NULL);
 	SendMessage(w, WM_SETFONT, (WPARAM)fontText, TRUE);
+
 	y+= TEXT_HEIGHT;
 
 	CreateWindowEx(WS_EX_CLIENTEDGE, "EDIT","",

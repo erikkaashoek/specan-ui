@@ -161,7 +161,8 @@ int openSerialPort(int port){
   char c[200];
   DCB dcbSerialParams = {0};
   COMMTIMEOUTS timeouts ={0};
-
+if (port == 1)
+    return -1;
   sprintf(c, "\\\\.\\COM%d", port);
   serialPort = CreateFile(c, GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
   if (serialPort == INVALID_HANDLE_VALUE && GetLastError() != ERROR_SUCCESS){
@@ -268,11 +269,28 @@ void loadCaliberation(){
   UpdateWindow(mainWnd);
 }
 
+void serialReceived();
+
 int  serialWrite(char *c){
   DWORD len, i;
-
   len = strlen(c);
   if (DEBUG) printf(">%s",c);
+  if (serialPort == INVALID_HANDLE_VALUE) {
+     if(*c == 'm'){
+        endFreq = centerFreq + spans[selectedSpan].width + firstIF;
+        startFreq = centerFreq - spans[selectedSpan].width + firstIF;
+        stepSize = (endFreq - startFreq) / steps[selectedSteps].nsteps;
+        sprintf(inbuff,"b\n");
+        serialReceived();
+        for (i=0; i<steps[selectedSteps].nsteps;i++) {
+            sprintf(inbuff,"r%d:%d\n", (int) (startFreq + i * stepSize), (int)((rand() % 100) + 450));
+            serialReceived();
+        }
+        sprintf(inbuff,"e\n");
+        serialReceived();
+     }
+  }
+
   if (!WriteFile(serialPort, c, len, &i, NULL))
     return 0;
   return 1;
@@ -384,10 +402,10 @@ void setupSweep(){
 
 
 
-//	if (IsDlgButtonChecked(mainWnd, IDC_1KHZ))
-//		serialWrite("n\n");
-//	else
-//		serialWrite("w\n");
+	if (IsDlgButtonChecked(mainWnd, IDC_1KHZ))
+		serialWrite("n\n");
+	else
+		serialWrite("w\n");
 
 }
 
@@ -1100,7 +1118,7 @@ void setupControls(HWND hwnd){
 
 	y += (TEXT_HEIGHT * 3)/2;
 
-	w = CreateWindow("BUTTON","1 KHz RBW",
+	w = CreateWindow("BUTTON","15 KHz RBW",
 		WS_CHILD|WS_VISIBLE|BS_AUTORADIOBUTTON,
 		(X_OFF * 2) + DISPLAY_WIDTH + 60, y, 200, TEXT_HEIGHT, hwnd,
 		(HMENU)IDC_1KHZ,

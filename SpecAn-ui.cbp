@@ -47,13 +47,6 @@
 			<Add library="libcomdlg32.a" />
 			<Add library="libwinmm" />
 		</Linker>
-		<Unit filename="Fourier.c">
-			<Option compilerVar="CC" />
-		</Unit>
-		<Unit filename="Fourier.h" />
-		<Unit filename="readaudio.c">
-			<Option compilerVar="CC" />
-		</Unit>
 		<Unit filename="resource.h" />
 		<Unit filename="specan.c">
 			<Option compilerVar="CC" />

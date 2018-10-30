@@ -59,14 +59,14 @@ struct Reading refReadings[MAX_READINGS];
 int nextReading=0;
 int nrefReadings=0;
 
-#define IF1 firstIF
-#define IF2  10700000
 
 /* these are last selection from the sweep dialog */
+int harmonic = 1;
 int selectedSpan=10;
 int selectedSteps=3;
 int centerFreq = 50000000L;
 int firstIF = 110700000L;
+#define IF2  10700000
 int maxFreq = 105000000L;
 int startFreq = 0L, endFreq = 100000000L;
 int stepSize = 2000;
@@ -108,13 +108,14 @@ struct Step {
   char  *name;
 };
 
-#define STEPS_COUNT 5
+#define STEPS_COUNT 6
 struct Step steps[STEPS_COUNT] = {
   {10, "10 steps"},
   {30, "30 steps"},
   {100, "100 steps"},
   {300, "300 steps"},
-  {600, "600 steps"}
+  {1000, "1000 steps"},
+  {3000, "3000 steps"}
 };
 
 /* GUI objects and dimensions */
@@ -178,7 +179,7 @@ int openSerialPort(int port){
     return -1;
   }
 
-  dcbSerialParams.BaudRate=CBR_115200;
+  dcbSerialParams.BaudRate=CBR_115200; //CBR_115200;
   dcbSerialParams.ByteSize=8;
   dcbSerialParams.StopBits=ONESTOPBIT;
   dcbSerialParams.Parity=NOPARITY;
@@ -296,7 +297,7 @@ void enterReading(char *string){
   while (i < sizeof(c)-1 && isdigit(*string))
       c[i++] = *string++;
   c[i] = 0;
-  freq = atoi(c);
+  freq = atoi(c)*harmonic;
 
   if (*string != ':' || freq <= 0){
     logger("Bad format for reading\n");
@@ -309,7 +310,7 @@ void enterReading(char *string){
   c[i] = 0;
   rfpower = atoi(c);
 
-  readings[nextReading].frequency = freq-IF1;
+  readings[nextReading].frequency = freq-firstIF;
   readings[nextReading].power = -rfpower;
   sprintf(c, "%d, %d, %d, %d\n", nextReading, readings[nextReading].frequency , readings[nextReading].power, atoi(c));
   logger(c);
@@ -335,10 +336,10 @@ void setupSweep(){
   sprintf(c, "v2\n");
   serialWrite(c);
   Sleep(10);
-  sprintf(c, "a%d\n", IF1-IF2);
+  sprintf(c, "a%d\n", (firstIF-IF2)/harmonic);
   serialWrite(c);
   Sleep(10);
-  sprintf(c, "b%d\n", IF1-IF2);
+  sprintf(c, "b%d\n", (firstIF-IF2)/harmonic);
   serialWrite(c);
   Sleep(10);
   sprintf(c, "t2\n");
@@ -364,13 +365,13 @@ void setupSweep(){
   sprintf(c, "v0\n");
   serialWrite(c);
   Sleep(10);
-  sprintf(c, "a%d\n", f1+IF1);
+  sprintf(c, "a%d\n", (f1+firstIF)/harmonic);
   serialWrite(c);
   Sleep(10);
-  sprintf(c, "b%d\n", f2+IF1);
+  sprintf(c, "b%d\n", (f2+firstIF)/harmonic);
   serialWrite(c);
   Sleep(10);
-  sprintf(c, "t2\n");
+  sprintf(c, "t1\n");
   serialWrite(c);
   Sleep(10);
   //sprintf(c, "s%d\n", stepSize);
